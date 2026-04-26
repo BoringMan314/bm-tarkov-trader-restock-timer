@@ -10,9 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 BUILD_DIR = PROJECT_ROOT / "build"
 DIST_DIR = PROJECT_ROOT / "dist"
 APP_NAME = "bm-tarkov-trader-restock-timer"
-DISPLAY_TITLE = "[B.M] 塔科夫商人補貨計時 V1.0 By. [B.M] 圓周率 3.14"
-APP_VERSION = "1.0.0.0"
-VERSION_FILE = PROJECT_ROOT / "version_info.txt"
+VERSION_INFO = PROJECT_ROOT / "version_info.txt"
 
 
 def clear_dir(path):
@@ -34,43 +32,21 @@ def replace_exe(built_exe, final_exe):
     shutil.move(str(built_exe), str(final_exe))
 
 
-def write_version_file():
-    VERSION_FILE.write_text(
-        f"""# UTF-8
-VSVersionInfo(
-  ffi=FixedFileInfo(
-    filevers=(1, 0, 0, 0),
-    prodvers=(1, 0, 0, 0),
-    mask=0x3F,
-    flags=0x0,
-    OS=0x40004,
-    fileType=0x1,
-    subtype=0x0,
-    date=(0, 0)
-  ),
-  kids=[
-    StringFileInfo(
-      [
-        StringTable(
-          '040404B0',
-          [
-            StringStruct('CompanyName', '[B.M] 圓周率 3.14'),
-            StringStruct('FileDescription', '{DISPLAY_TITLE}'),
-            StringStruct('FileVersion', '1.0'),
-            StringStruct('InternalName', '{APP_NAME}'),
-            StringStruct('ProductName', '{DISPLAY_TITLE}'),
-            StringStruct('ProductVersion', '1.0'),
-            StringStruct('OriginalFilename', '{APP_NAME}.exe'),
-          ],
+def remove_stale_specs():
+    for p in PROJECT_ROOT.glob("*.spec"):
+        try:
+            p.unlink()
+        except OSError:
+            pass
+
+
+def require_version_info() -> Path:
+    if not VERSION_INFO.is_file():
+        raise SystemExit(
+            "Missing version_info.txt at project root. "
+            "Edit that file (Exe.txt Windows file version) then rebuild."
         )
-      ]
-    ),
-    VarFileInfo([VarStruct('Translation', [0x0404, 1200])]),
-  ],
-)
-""",
-        encoding="utf-8",
-    )
+    return VERSION_INFO
 
 
 def check_python(mode):
@@ -82,46 +58,50 @@ def check_python(mode):
 
 
 def build(mode):
-    check_python(mode)
-    write_version_file()
-    clear_dir(BUILD_DIR)
-    clear_dir(DIST_DIR)
+    remove_stale_specs()
+    try:
+        check_python(mode)
+        vinfo = require_version_info()
+        clear_dir(BUILD_DIR)
+        clear_dir(DIST_DIR)
 
-    exe_name = APP_NAME if mode == "win10" else APP_NAME + "_win7"
-    command = [
-        sys.executable,
-        "-m",
-        "PyInstaller",
-        "--noconfirm",
-        "--clean",
-        "--onefile",
-        "--windowed",
-        "--name",
-        exe_name,
-        "--icon",
-        str(PROJECT_ROOT / "icons" / "icon.ico"),
-        "--version-file",
-        str(VERSION_FILE),
-        "--workpath",
-        str(BUILD_DIR),
-        "--distpath",
-        str(DIST_DIR),
-        "--specpath",
-        str(PROJECT_ROOT),
-        "--add-data",
-        add_data_arg(PROJECT_ROOT / "icons", "icons"),
-    ]
+        exe_name = APP_NAME if mode == "win10" else APP_NAME + "_win7"
+        command = [
+            sys.executable,
+            "-m",
+            "PyInstaller",
+            "--noconfirm",
+            "--clean",
+            "--onefile",
+            "--windowed",
+            "--name",
+            exe_name,
+            "--icon",
+            str(PROJECT_ROOT / "icons" / "icon.ico"),
+            "--version-file",
+            str(vinfo),
+            "--workpath",
+            str(BUILD_DIR),
+            "--distpath",
+            str(DIST_DIR),
+            "--specpath",
+            str(PROJECT_ROOT),
+            "--add-data",
+            add_data_arg(PROJECT_ROOT / "icons", "icons"),
+        ]
 
-    command.append(str(PROJECT_ROOT / "main.py"))
-    subprocess.check_call(command, cwd=str(PROJECT_ROOT))
+        command.append(str(PROJECT_ROOT / "main.py"))
+        subprocess.check_call(command, cwd=str(PROJECT_ROOT))
 
-    built_exe = DIST_DIR / (exe_name + ".exe")
-    final_exe = PROJECT_ROOT / (exe_name + ".exe")
-    replace_exe(built_exe, final_exe)
+        built_exe = DIST_DIR / (exe_name + ".exe")
+        final_exe = PROJECT_ROOT / (exe_name + ".exe")
+        replace_exe(built_exe, final_exe)
 
-    clear_dir(BUILD_DIR)
-    clear_dir(DIST_DIR)
-    print("Built " + final_exe.name)
+        clear_dir(BUILD_DIR)
+        clear_dir(DIST_DIR)
+        print("Built " + final_exe.name)
+    finally:
+        remove_stale_specs()
 
 
 def main():
