@@ -32,14 +32,6 @@ def replace_exe(built_exe, final_exe):
     shutil.move(str(built_exe), str(final_exe))
 
 
-def remove_stale_specs():
-    for p in PROJECT_ROOT.glob("*.spec"):
-        try:
-            p.unlink()
-        except OSError:
-            pass
-
-
 def require_version_info() -> Path:
     if not VERSION_INFO.is_file():
         raise SystemExit(
@@ -58,50 +50,46 @@ def check_python(mode):
 
 
 def build(mode):
-    remove_stale_specs()
-    try:
-        check_python(mode)
-        vinfo = require_version_info()
-        clear_dir(BUILD_DIR)
-        clear_dir(DIST_DIR)
+    check_python(mode)
+    vinfo = require_version_info()
+    clear_dir(BUILD_DIR)
+    clear_dir(DIST_DIR)
 
-        exe_name = APP_NAME if mode == "win10" else APP_NAME + "_win7"
-        command = [
-            sys.executable,
-            "-m",
-            "PyInstaller",
-            "--noconfirm",
-            "--clean",
-            "--onefile",
-            "--windowed",
-            "--name",
-            exe_name,
-            "--icon",
-            str(PROJECT_ROOT / "icons" / "icon.ico"),
-            "--version-file",
-            str(vinfo),
-            "--workpath",
-            str(BUILD_DIR),
-            "--distpath",
-            str(DIST_DIR),
-            "--specpath",
-            str(PROJECT_ROOT),
-            "--add-data",
-            add_data_arg(PROJECT_ROOT / "icons", "icons"),
-        ]
+    exe_name = APP_NAME if mode == "win10" else APP_NAME + "_win7"
+    command = [
+        sys.executable,
+        "-m",
+        "PyInstaller",
+        "--noconfirm",
+        "--clean",
+        "--onefile",
+        "--windowed",
+        "--name",
+        exe_name,
+        "--icon",
+        str(PROJECT_ROOT / "icons" / "icon.ico"),
+        "--version-file",
+        str(vinfo),
+        "--workpath",
+        str(BUILD_DIR),
+        "--distpath",
+        str(DIST_DIR),
+        "--specpath",
+        str(BUILD_DIR),
+        "--add-data",
+        add_data_arg(PROJECT_ROOT / "icons", "icons"),
+    ]
 
-        command.append(str(PROJECT_ROOT / "main.py"))
-        subprocess.check_call(command, cwd=str(PROJECT_ROOT))
+    command.append(str(PROJECT_ROOT / "main.py"))
+    subprocess.check_call(command, cwd=str(PROJECT_ROOT))
 
-        built_exe = DIST_DIR / (exe_name + ".exe")
-        final_exe = PROJECT_ROOT / (exe_name + ".exe")
-        replace_exe(built_exe, final_exe)
+    built_exe = DIST_DIR / (exe_name + ".exe")
+    final_exe = PROJECT_ROOT / (exe_name + ".exe")
+    replace_exe(built_exe, final_exe)
 
-        clear_dir(BUILD_DIR)
-        clear_dir(DIST_DIR)
-        print("Built " + final_exe.name)
-    finally:
-        remove_stale_specs()
+    clear_dir(BUILD_DIR)
+    clear_dir(DIST_DIR)
+    print("Built " + final_exe.name)
 
 
 def main():

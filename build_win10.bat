@@ -11,8 +11,6 @@ if not exist "build" mkdir "build" 2>nul
 if not exist "dist" mkdir "dist" 2>nul
 call :clean_dir_contents "build"
 call :clean_dir_contents "dist"
-if exist "bm-tarkov-trader-restock-timer.spec" del /f /q "bm-tarkov-trader-restock-timer.spec" 2>nul
-if exist "bm-tarkov-trader-restock-timer_win7.spec" del /f /q "bm-tarkov-trader-restock-timer_win7.spec" 2>nul
 if exist "bm-tarkov-trader-restock-timer*.old*" del /f /q "bm-tarkov-trader-restock-timer*.old*" 2>nul
 if exist "%OUT%" del /f /q "%OUT%" 2>nul
 
