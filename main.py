@@ -20,6 +20,7 @@ from PIL import Image, ImageTk
 import pystray
 
 import bm_single_instance
+import bm_github_update
 
 
 PROJECT_NAME = "塔科夫商人補貨計時"
@@ -31,6 +32,9 @@ TITLE_SUFFIX = " V1.0 By. [B.M] 圓周率 3.14"
 SINGLE_APP_ID = APP_EXE_PREFIX
 CONFIG_NAME = APP_EXE_PREFIX + ".json"
 ABOUT_URL = "http://exnormal.com:81/"
+GITHUB_REPO = "BoringMan314/bm-tarkov-trader-restock-timer"
+GITHUB_USER_AGENT = APP_EXE_PREFIX
+REPOSITORY_URL = "https://github.com/BoringMan314/bm-tarkov-trader-restock-timer"
 REG_RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 HWND_TOPMOST = -1
 HWND_NOTOPMOST = -2
@@ -153,6 +157,8 @@ def default_config():
                 "tray_restore": "還原",
                 "about": "關於",
                 "exit": "離開",
+                "download_update": "下載更新",
+                "update_available_title": "有新版本：{version}。",
             },
             "zh_CN": {
                 "language_name": "简体中文",
@@ -172,6 +178,8 @@ def default_config():
                 "tray_restore": "还原",
                 "about": "关于",
                 "exit": "离开",
+                "download_update": "下载更新",
+                "update_available_title": "有可用新版本：{version}。",
             },
             "ja_JP": {
                 "language_name": "日本語",
@@ -191,6 +199,8 @@ def default_config():
                 "tray_restore": "復元",
                 "about": "バージョン情報",
                 "exit": "終了",
+                "download_update": "更新をダウンロード",
+                "update_available_title": "新しいバージョンがあります：{version}。",
             },
             "en_US": {
                 "language_name": "English",
@@ -210,6 +220,8 @@ def default_config():
                 "tray_restore": "Restore",
                 "about": "About",
                 "exit": "Exit",
+                "download_update": "Download update",
+                "update_available_title": "New version available: {version}.",
             },
         },
     }
@@ -392,6 +404,11 @@ class TraderTimerApp:
         self.config = load_config()
         self.tray_icon = None
         self.tray_thread = None
+        self._update_info = None
+        self._update_downloading = False
+        self._update_check_started = False
+        self._update_title_alt = False
+        self._update_title_after_id = None
         self.exiting = False
         self.fetching_reset_times = False
         self.reset_times = {}
@@ -417,6 +434,7 @@ class TraderTimerApp:
             lambda: self.root.after(0, self.exit_app),
         )
         self.start_tray()
+        self.root.after(0, self._start_update_check)
         set_auto_start(bool(self.config["settings"].get("auto_start")))
         self.refresh_reset_times_async()
         self.tick()
@@ -456,8 +474,139 @@ class TraderTimerApp:
     def full_title(self):
         return TITLE_PREFIX + self.text_for("project_name") + TITLE_SUFFIX
 
+    def get_update_available_title(self):
+        if self._update_info is None:
+            return self.full_title()
+        ver = bm_github_update.version_label(
+            self._update_info.major,
+            self._update_info.minor,
+            self._update_info.patch,
+        )
+        return self.text_for("update_available_title").format(version=ver)
+
+    def apply_displayed_title(self):
+        if self._update_info is not None and self._update_title_alt:
+            self.root.title(self.get_update_available_title())
+        else:
+            self.root.title(self.full_title())
+
+    def _sync_tray_icon_title(self):
+        if self.tray_icon is None:
+            return
+        try:
+            self.tray_icon.title = self.full_title()
+        except Exception:
+            pass
+
+    def _stop_update_title_alternation(self):
+        if self._update_title_after_id is not None:
+            try:
+                self.root.after_cancel(self._update_title_after_id)
+            except Exception:
+                pass
+            self._update_title_after_id = None
+
+    def _schedule_update_title_tick(self):
+        if self._update_info is None:
+            return
+        self._update_title_after_id = self.root.after(3000, self._update_title_tick)
+
+    def _update_title_tick(self):
+        self._update_title_after_id = None
+        if self._update_info is None:
+            return
+        self._update_title_alt = not self._update_title_alt
+        self.apply_displayed_title()
+        self._schedule_update_title_tick()
+
+    def _start_update_title_alternation(self):
+        self._stop_update_title_alternation()
+        self._update_title_alt = False
+        self.apply_displayed_title()
+        self._sync_tray_icon_title()
+        self._schedule_update_title_tick()
+
+    def _current_app_version(self):
+        return bm_github_update.parse_title_version(TITLE_SUFFIX)
+
+    def _start_update_check(self):
+        if self._update_check_started:
+            return
+        self._update_check_started = True
+        threading.Thread(target=self._update_check_worker, daemon=True).start()
+
+    def _update_check_worker(self):
+        try:
+            info = bm_github_update.fetch_latest_update(
+                GITHUB_REPO,
+                GITHUB_USER_AGENT,
+                self._current_app_version(),
+                bm_github_update.make_pick_win10_exe(APP_EXE_PREFIX),
+            )
+            if info is not None:
+                self.root.after(0, lambda: self._on_update_available(info))
+        except Exception:
+            pass
+
+    def _on_update_available(self, info):
+        self._update_info = info
+        self._start_update_title_alternation()
+        self._refresh_tray_menu()
+
+    def _refresh_tray_menu(self):
+        if self.tray_icon is None:
+            return
+        try:
+            self.tray_icon.menu = self._tray_build_menu()
+            if hasattr(self.tray_icon, "update_menu"):
+                self.tray_icon.update_menu()
+        except Exception:
+            pass
+
+    def open_github(self):
+        try:
+            webbrowser.open(REPOSITORY_URL)
+        except Exception:
+            pass
+
+    def show_download_update(self, icon=None, item=None):
+        self.root.after(0, self._download_update_on_main)
+
+    def _download_update_on_main(self):
+        if self._update_downloading or self._update_info is None:
+            return
+        info = self._update_info
+        dest = bm_github_update.build_save_path(
+            str(app_dir()),
+            APP_EXE_PREFIX,
+            info.major,
+            info.minor,
+            info.patch,
+            ".exe",
+        )
+        self._update_downloading = True
+        self._refresh_tray_menu()
+
+        def work():
+            try:
+                bm_github_update.download_release(
+                    info.download_url,
+                    dest,
+                    GITHUB_USER_AGENT,
+                )
+            except Exception:
+                pass
+            finally:
+                self.root.after(0, self._finish_download_update)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _finish_download_update(self):
+        self._update_downloading = False
+        self._refresh_tray_menu()
+
     def configure_window(self):
-        self.root.title(self.full_title())
+        self.apply_displayed_title()
         self.position_window()
         self.root.resizable(False, False)
         self.root.configure(bg="#111310")
@@ -826,7 +975,7 @@ class TraderTimerApp:
         self.update_countdown_labels()
 
     def apply_language(self):
-        self.root.title(self.full_title())
+        self.apply_displayed_title()
         self.always_on_top_check.configure(text=self.text_for("always_on_top_checkbox"))
         self.language_button.configure(text=self.text_for("language_name"))
         self.game_mode_button.configure(text=self.game_mode_label())
@@ -840,7 +989,7 @@ class TraderTimerApp:
                 self.tray_icon.menu = self._tray_build_menu()
                 if hasattr(self.tray_icon, "update_menu"):
                     self.tray_icon.update_menu()
-                self.tray_icon.title = self.full_title()
+                self._sync_tray_icon_title()
         except Exception:
             pass
         self.update_countdown_labels()
@@ -1043,22 +1192,40 @@ class TraderTimerApp:
             pass
 
     def _tray_build_menu(self) -> pystray.Menu:
-        return pystray.Menu(
+        items = [
             pystray.MenuItem(
                 " ",
                 lambda _icon, _item: self.root.after(0, self.restore_window),
                 default=True,
                 visible=False,
             ),
+        ]
+        if self._update_info is not None:
+            items.append(
+                pystray.MenuItem(
+                    self.text_for("download_update"),
+                    lambda _icon, _item: self.root.after(0, self.show_download_update),
+                )
+            )
+        items.append(
+            pystray.MenuItem(
+                "GitHub",
+                lambda _icon, _item: self.root.after(0, self.open_github),
+            )
+        )
+        items.append(
             pystray.MenuItem(
                 self.text_for("about"),
                 lambda _icon, _item: self.root.after(0, self.open_about),
-            ),
+            )
+        )
+        items.append(
             pystray.MenuItem(
                 self.text_for("exit"),
                 lambda _icon, _item: self.root.after(0, self.exit_app),
-            ),
+            )
         )
+        return pystray.Menu(*items)
 
     def start_tray(self):
         try:
@@ -1086,6 +1253,7 @@ class TraderTimerApp:
     def exit_app(self):
         if self.exiting:
             return
+        self._stop_update_title_alternation()
         self.exiting = True
         try:
             if self.tray_icon:

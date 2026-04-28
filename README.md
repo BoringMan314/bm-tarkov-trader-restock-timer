@@ -4,6 +4,7 @@
 [![Python](https://img.shields.io/badge/Python-Win10%3A3.10%2B%20%7C%20Win7%3A3.8-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Build](https://img.shields.io/badge/Build-PyInstaller-2E8B57)](https://pyinstaller.org/)
 [![GitHub](https://img.shields.io/badge/GitHub-bm--tarkov--trader--restock--timer-181717?logo=github)](https://github.com/BoringMan314/bm-tarkov-trader-restock-timer)
+[![GitHub all releases](https://img.shields.io/github/downloads/BoringMan314/bm-tarkov-trader-restock-timer/total)](https://github.com/BoringMan314/bm-tarkov-trader-restock-timer/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 《逃離塔科夫》商人補貨倒數小工具：自 **tarkov.dev** 取得重設時間，支援 PvE／一般模式切換、顯示設定、系統匣與多語系介面。
@@ -46,7 +47,8 @@
 - 內建語言：繁體中文、簡體中文、日本語、English；**可**在設定檔根層 `languages` **新增**其他語系代碼。**每一**語系物件的**鍵集合**（含巢狀 **`trader_names`** 之 slug 與字串）須與 `main.py` 內建 **`default_config()["languages"]["zh_TW"]`** **完全一致**，缺一即驗證失敗，程式會刪除壞檔並寫入內建預設。
 - 系統匣：
   - 左鍵預設動作可還原主視窗至約 `100,100` 並置前
-  - 右鍵選單：關於、離開（鍵名 `about`、`exit`；隱藏預設動作文案鍵名 `tray_restore`）
+  - 右鍵選單：有新版時顯示「下載更新」、**GitHub**、關於、離開（`download_update`、`about`、`exit`；隱藏預設動作鍵名 `tray_restore`）
+- **更新檢查**（啟動時一次）：向 GitHub Releases 查詢是否有較新版本；有新版時**視窗標題**每 3 秒輪播提示。**僅**點「下載更新」時，將 Win10 版 exe 存到程式同目錄，檔名為 `bm-tarkov-trader-restock-timer-Vx.y.z.exe`（不覆寫執行中 exe；同檔名已存在則跳過）。
 - 防多開：後開透過 Mutex + Named Pipe 通知前開靜默退出（含 EXE 改名／複製情境）。
 
 ---
