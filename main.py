@@ -26,9 +26,9 @@ import bm_github_update
 PROJECT_NAME = "塔科夫商人補貨計時"
 APP_SHORT_NAME = "tarkov-trader-restock-timer"
 APP_EXE_PREFIX = "bm-" + APP_SHORT_NAME
-HTTP_USER_AGENT = APP_EXE_PREFIX + "/1.0"
+HTTP_USER_AGENT = APP_EXE_PREFIX + "/1.1"
 TITLE_PREFIX = "[B.M] "
-TITLE_SUFFIX = " V1.0 By. [B.M] 圓周率 3.14"
+TITLE_SUFFIX = " V1.1 By. [B.M] 圓周率 3.14"
 SINGLE_APP_ID = APP_EXE_PREFIX
 CONFIG_NAME = APP_EXE_PREFIX + ".json"
 ABOUT_URL = "http://exnormal.com:81/"
@@ -65,7 +65,12 @@ HIDDEN_IMAGE_STRIP_HEIGHT = IMAGE_TOP_PAD + TRADER_IMAGE_SIZE
 BOTTOM_STACK_WHEN_AT_MOST = 3
 BOTTOM_STACK_EXTRA_HEIGHT = 90
 DEFAULT_GAME_MODE = "pve"
-GAME_MODES = ("pve", "regular")
+GAME_MODES = ("pve", "regular", "season")
+GAME_MODE_UI_LABELS = {
+    "pve": {"zh_TW": "PVE", "zh_CN": "PVE", "ja_JP": "PVE", "en_US": "PVE"},
+    "regular": {"zh_TW": "PVP", "zh_CN": "PVP", "ja_JP": "PVP", "en_US": "PVP"},
+    "season": {"zh_TW": "賽季", "zh_CN": "赛季", "ja_JP": "シーズン", "en_US": "Season"},
+}
 BUILTIN_I18N_ORDER = ("zh_TW", "zh_CN", "ja_JP", "en_US")
 DEFAULT_TK_FONT_SIZE = 10
 
@@ -80,6 +85,56 @@ TRADERS = [
     ("jaeger", {"zh_TW": "Jaeger", "zh_CN": "Jaeger", "ja_JP": "Jaeger", "en_US": "Jaeger"}),
     ("ref", {"zh_TW": "競技場裁判", "zh_CN": "竞技场裁判", "ja_JP": "アリーナ審判", "en_US": "Ref"}),
 ]
+
+TARKOV_DEV_GRAPHQL_URL = "https://api.tarkov.dev/graphql"
+TRADER_RESET_FALLBACK_URLS = {
+    "regular": "https://tarkovbot.eu/api/trader-resets",
+    "pve": "https://tarkovbot.eu/api/pve/trader-resets",
+    "season": "https://tarkovbot.eu/api/season/trader-resets",
+}
+
+
+def trader_api_name_to_slug():
+    return {names["en_US"]: slug for slug, names in TRADERS}
+
+
+def parse_trader_reset_payload(traders, valid_slugs, slug_key):
+    reset_times = {}
+    name_to_slug = trader_api_name_to_slug() if slug_key == "name" else None
+    for trader in traders:
+        if slug_key == "name":
+            slug = name_to_slug.get(trader.get("name"))
+        else:
+            slug = trader.get(slug_key)
+        if slug in valid_slugs and trader.get("resetTime"):
+            reset_times[slug] = trader["resetTime"]
+    return reset_times
+
+
+def fetch_trader_resets_tarkov_dev(game_mode, valid_slugs):
+    if game_mode not in GAME_MODES:
+        game_mode = DEFAULT_GAME_MODE
+    query = {"query": f"{{ traders(gameMode: {game_mode}) {{ normalizedName resetTime }} }}"}
+    req = urllib.request.Request(
+        TARKOV_DEV_GRAPHQL_URL,
+        data=json.dumps(query).encode("utf-8"),
+        headers={"Content-Type": "application/json", "User-Agent": HTTP_USER_AGENT},
+    )
+    with urllib.request.urlopen(req, timeout=10) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    if payload.get("errors"):
+        raise RuntimeError("tarkov.dev unavailable")
+    traders = payload.get("data", {}).get("traders") or []
+    return parse_trader_reset_payload(traders, valid_slugs, "normalizedName")
+
+
+def fetch_trader_resets_tarkovbot(game_mode, valid_slugs):
+    url = TRADER_RESET_FALLBACK_URLS.get(game_mode, TRADER_RESET_FALLBACK_URLS["regular"])
+    req = urllib.request.Request(url, headers={"User-Agent": HTTP_USER_AGENT})
+    with urllib.request.urlopen(req, timeout=10) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    traders = payload.get("data", {}).get("traders") or []
+    return parse_trader_reset_payload(traders, valid_slugs, "name")
 
 def default_trader_names_for_lang(lang_code):
     return {slug: names.get(lang_code, names.get("en_US", slug)) for slug, names in TRADERS}
@@ -803,10 +858,14 @@ class TraderTimerApp:
         self.apply_language()
 
     def game_mode_label(self):
-        return "PVE" if self.game_mode == "pve" else "PVP"
+        labels = GAME_MODE_UI_LABELS.get(self.game_mode, {})
+        return labels.get(self.language, labels.get("en_US", self.game_mode))
 
     def toggle_game_mode(self):
-        self.config["settings"]["game_mode"] = "regular" if self.game_mode == "pve" else "pve"
+        modes = list(GAME_MODES)
+        current = self.game_mode
+        index = modes.index(current) if current in modes else 0
+        self.config["settings"]["game_mode"] = modes[(index + 1) % len(modes)]
         save_config(self.config)
         self.game_mode_button.configure(text=self.game_mode_label())
         self.reset_times = {}
@@ -1050,29 +1109,27 @@ class TraderTimerApp:
 
     def fetch_reset_times(self, game_mode):
         next_refresh_ms = 10000
-        query = {"query": f"{{ traders(gameMode: {game_mode}) {{ normalizedName resetTime }} }}"}
+        valid_slugs = set(self.countdown_labels)
+        reset_times = {}
         try:
-            req = urllib.request.Request(
-                "https://api.tarkov.dev/graphql",
-                data=json.dumps(query).encode("utf-8"),
-                headers={"Content-Type": "application/json", "User-Agent": HTTP_USER_AGENT},
-            )
-            with urllib.request.urlopen(req, timeout=10) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-            reset_times = {}
-            for trader in payload.get("data", {}).get("traders", []):
-                if trader.get("normalizedName") in self.countdown_labels and trader.get("resetTime"):
-                    reset_times[trader["normalizedName"]] = trader["resetTime"]
-            if game_mode == self.game_mode:
+            reset_times = fetch_trader_resets_tarkov_dev(game_mode, valid_slugs)
+        except Exception:
+            pass
+        if not reset_times:
+            try:
+                reset_times = fetch_trader_resets_tarkovbot(game_mode, valid_slugs)
+            except Exception:
+                pass
+        if game_mode == self.game_mode:
+            if reset_times:
                 self.reset_times = reset_times
                 next_refresh_ms = 5000 if self.has_expired_reset_time() else 60000
             else:
-                next_refresh_ms = 0
-        except Exception:
-            pass
-        finally:
-            self.fetching_reset_times = False
-            self.root.after(0, lambda: self.after_reset_times_updated(next_refresh_ms))
+                next_refresh_ms = 10000
+        else:
+            next_refresh_ms = 0
+        self.fetching_reset_times = False
+        self.root.after(0, lambda: self.after_reset_times_updated(next_refresh_ms))
 
     def after_reset_times_updated(self, next_refresh_ms):
         self.update_countdown_labels()
