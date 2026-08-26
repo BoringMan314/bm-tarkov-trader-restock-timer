@@ -10,3 +10,8 @@ __pycache__/
 /*.url
 /*.zip
 /bm-tarkov-trader-restock-timer.json
+
+*.cul
+
+*.url
+*.zip
